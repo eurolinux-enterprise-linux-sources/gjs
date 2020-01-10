@@ -1,19 +1,18 @@
 %global gobject_introspection_version 1.41.4
 
 Name:          gjs
-Version:       1.42.0
+Version:       1.46.0
 Release:       1%{?dist}
 Summary:       Javascript Bindings for GNOME
 
-Group:         System Environment/Libraries
 # The following files contain code from Mozilla which
 # is triple licensed under MPL1.1/LGPLv2+/GPLv2+:
 # The console module (modules/console.c)
 # Stack printer (gjs/stack.c)
 License:       MIT and (MPLv1.1 or GPLv2+ or LGPLv2+)
-URL:           http://live.gnome.org/Gjs/
+URL:           https://wiki.gnome.org/Projects/Gjs
 #VCS:          git://git.gnome.org/gjs
-Source0:       http://download.gnome.org/sources/%{name}/1.42/%{name}-%{version}.tar.xz
+Source0:       https://download.gnome.org/sources/%{name}/1.46/%{name}-%{version}.tar.xz
 
 BuildRequires: mozjs24-devel
 BuildRequires: cairo-gobject-devel
@@ -35,23 +34,30 @@ framework.
 
 %package devel
 Summary: Development package for %{name}
-Group: Development/Libraries
 Requires: %{name}%{?_isa} = %{version}-%{release}
 
 %description devel
 Files for development with %{name}.
+
+%package tests
+Summary: Tests for the gjs package
+Requires: %{name}%{?_isa} = %{version}-%{release}
+
+%description tests
+The gjs-tests package contains tests that can be used to verify
+the functionality of the installed gjs package.
 
 %prep
 %setup -q
 
 %build
 (if ! test -x configure; then NOCONFIGURE=1 ./autogen.sh; fi;
- %configure --disable-static)
+ %configure --disable-static --enable-installed-tests)
 
 make %{?_smp_mflags} V=1
 
 %install
-make install DESTDIR=%{buildroot}
+%make_install
 
 #Remove libtool archives.
 find %{buildroot} -name '*.la' -exec rm -f {} ';'
@@ -64,7 +70,8 @@ find %{buildroot} -name '*.la' -exec rm -f {} ';'
 %postun -p /sbin/ldconfig
 
 %files
-%doc COPYING NEWS README
+%license COPYING
+%doc NEWS README
 %{_bindir}/gjs
 %{_bindir}/gjs-console
 %{_libdir}/*.so.*
@@ -77,7 +84,15 @@ find %{buildroot} -name '*.la' -exec rm -f {} ';'
 %{_libdir}/pkgconfig/gjs-internals-1.0.pc
 %{_libdir}/*.so
 
+%files tests
+%{_libexecdir}/gjs/installed-tests
+%{_datadir}/installed-tests
+
 %changelog
+* Wed Sep 21 2016 Kalev Lember <klember@redhat.com> - 1.46.0-1
+- Update to 1.46.0
+- Resolves: #1386870
+
 * Thu Mar 19 2015 Richard Hughes <rhughes@redhat.com> - 1.42.0-1
 - Update to 1.42.0
 - Resolves: #1174518

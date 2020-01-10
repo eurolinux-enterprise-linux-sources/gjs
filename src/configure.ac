@@ -2,15 +2,16 @@
 # Process this file with autoconf to produce a configure script.
 
 m4_define(pkg_major_version, 1)
-m4_define(pkg_minor_version, 42)
+m4_define(pkg_minor_version, 46)
 m4_define(pkg_micro_version, 0)
 m4_define(pkg_version, pkg_major_version.pkg_minor_version.pkg_micro_version)
 m4_define(pkg_int_version, (pkg_major_version * 100 + pkg_minor_version) * 100 + pkg_micro_version)
 
 AC_PREREQ(2.61)
 AC_INIT([gjs], pkg_version, [http://bugzilla.gnome.org/enter_bug.cgi?product=gjs])
-AM_INIT_AUTOMAKE([dist-xz no-dist-gzip])
+AM_INIT_AUTOMAKE([dist-xz no-dist-gzip tar-ustar])
 AC_CONFIG_SRCDIR([gjs/console.cpp])
+AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADER([config.h])
 
 AC_DEFINE([GJS_VERSION], pkg_int_version, [The gjs version as an integer])
@@ -67,7 +68,7 @@ fi
 AM_CONDITIONAL([ENABLE_COVERAGE], [test x$enable_coverage = xyes])
 
 # Checks for libraries.
-m4_define(glib_required_version, 2.36.0)
+m4_define(glib_required_version, 2.42.0)
 
 AC_CHECK_HEADERS([malloc.h])
 AC_CHECK_FUNCS(mallinfo)
@@ -80,7 +81,7 @@ gjs_cairo_packages="cairo cairo-gobject $common_packages"
 gjs_gdbus_packages="gobject-2.0 >= glib_required_version gio-2.0"
 gjs_gtk_packages="gtk+-3.0"
 # gjs-tests links against everything
-gjstests_packages="$gjstests_packages $gjs_packages"
+gjstests_packages="gio-unix-2.0 $gjs_packages"
 
 PKG_CHECK_MODULES([GOBJECT], [gobject-2.0 >= glib_required_version])
 PKG_CHECK_MODULES([GJS], [$gjs_packages])
@@ -98,7 +99,8 @@ AM_CONDITIONAL(ENABLE_CAIRO, test x$have_cairo = xyes)
 AS_IF([test x$have_cairo = xyes], [
   AC_DEFINE([ENABLE_CAIRO],[1],[Define if you want to build with cairo support])
 ])
-PKG_CHECK_MODULES([GJS_CAIRO_XLIB], [cairo-xlib], , )
+PKG_CHECK_MODULES([GJS_CAIRO_XLIB], [cairo-xlib], [],
+  [AC_MSG_WARN([Cairo-xlib support not found])])
 
 # Optional GTK+ dep (enabled by default)
 AC_ARG_WITH(gtk,
@@ -221,6 +223,26 @@ fi
 
 AC_SUBST(EXTRA_LINK_FLAGS)
 
+AC_ARG_WITH([xvfb-tests],
+  [AS_HELP_STRING([--with-xvfb-tests],
+    [Run all tests under an XVFB server @<:@default=no@:>@])])
+AS_IF([test "x$with_xvfb_tests" = "xyes"], [
+  AC_PATH_PROG([XVFB], [Xvfb])
+  AS_IF([test -z "$XVFB"],
+    [AC_MSG_ERROR([Xvfb is required for --with-xvfb-tests])])
+])
+AM_CONDITIONAL([XVFB_TESTS], [test "x$with_xvfb_tests" = "xyes"])
+
+AC_ARG_WITH([dbus-tests],
+  [AS_HELP_STRING([--without-dbus-tests],
+    [Don't try to use DBus during make check @<:@default=use@:>@])])
+AS_IF([test "x$with_dbus_tests" != "xno"], [
+  AC_PATH_PROG([DBUS_UUIDGEN], [dbus-uuidgen])
+  AS_IF([test -z "$DBUS_UUIDGEN"],
+    [AC_MSG_ERROR([dbus-uuidgen is required for --with-dbus-tests])])
+])
+AM_CONDITIONAL([DBUS_TESTS], [test "x$with_dbus_tests" != "xno"])
+
 gjsjsdir="\${datadir}/gjs-1.0"
 AC_SUBST([gjsjsdir])
 
@@ -229,6 +251,11 @@ AC_SUBST([pkglibexecdir], ["${libexecdir}/${PACKAGE}"])
 
 AC_CONFIG_FILES([Makefile gjs-1.0.pc gjs-internals-1.0.pc])
 AC_OUTPUT
+
+TEST_MSG=
+AM_COND_IF([XVFB_TESTS], [TEST_MSG="xvfb "])
+AM_COND_IF([DBUS_TESTS], [TEST_MSG="${TEST_MSG}dbus"])
+AS_IF([test -z "$TEST_MSG"], [TEST_MSG="nothing special"])
 
 AC_MSG_RESULT([
         $PACKAGE_NAME $VERSION
@@ -241,4 +268,5 @@ AC_MSG_RESULT([
 	readline:		${have_readline}
 	dtrace:			${ENABLE_DTRACE}
 	systemtap:		${ENABLE_SYSTEMTAP}
+	Run tests under:	${TEST_MSG}
 ])

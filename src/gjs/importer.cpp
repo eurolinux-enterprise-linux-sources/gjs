@@ -872,7 +872,9 @@ importer_new_resolve(JSContext *context,
         goto out;
     priv = priv_from_js(context, obj);
 
-    gjs_debug_jsprop(GJS_DEBUG_IMPORTER, "Resolve prop '%s' hook obj %p priv %p", name, *obj, priv);
+    gjs_debug_jsprop(GJS_DEBUG_IMPORTER,
+                     "Resolve prop '%s' hook obj %p priv %p",
+                     name, (void *)obj, priv);
     if (priv == NULL) /* we are the prototype, or have the wrong class */
         goto out;
     JS_BeginRequest(context);
@@ -1145,24 +1147,25 @@ gjs_create_root_importer(JSContext   *context,
 }
 
 JSBool
-gjs_define_root_importer(JSContext   *context,
-                         JSObject    *in_object)
+gjs_define_root_importer_object(JSContext        *context,
+                                JS::HandleObject  in_object,
+                                JS::HandleObject  root_importer)
 {
-    jsval importer;
     JSBool success;
     jsid imports_name;
 
     success = JS_FALSE;
     JS_BeginRequest(context);
 
-    importer = gjs_get_global_slot(context, GJS_GLOBAL_SLOT_IMPORTS);
+    JS::RootedValue importer (JS_GetRuntime(context),
+                              OBJECT_TO_JSVAL(root_importer));
     imports_name = gjs_context_get_const_string(context, GJS_STRING_IMPORTS);
     if (!JS_DefinePropertyById(context, in_object,
                                imports_name, importer,
                                NULL, NULL,
                                GJS_MODULE_PROP_FLAGS)) {
         gjs_debug(GJS_DEBUG_IMPORTER, "DefineProperty imports on %p failed",
-                  in_object);
+                  (JSObject *) in_object);
         goto fail;
     }
 
@@ -1170,4 +1173,19 @@ gjs_define_root_importer(JSContext   *context,
  fail:
     JS_EndRequest(context);
     return success;
+}
+
+JSBool
+gjs_define_root_importer(JSContext   *context,
+                         JSObject    *in_object)
+{
+    JS::RootedValue importer(JS_GetRuntime(context),
+                             gjs_get_global_slot(context, GJS_GLOBAL_SLOT_IMPORTS));
+    JS::RootedObject rooted_in_object(JS_GetRuntime(context),
+                                      in_object);
+    JS::RootedObject rooted_importer(JS_GetRuntime(context),
+                                     JSVAL_TO_OBJECT(importer));
+    return gjs_define_root_importer_object(context,
+                                           rooted_in_object,
+                                           rooted_importer);
 }

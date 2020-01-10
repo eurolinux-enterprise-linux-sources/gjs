@@ -66,7 +66,9 @@ to_string_func(JSContext *context,
                unsigned   argc,
                jsval     *vp)
 {
-    JSObject *obj = JS_THIS_OBJECT(context, vp);
+    JS::CallReceiver rec = JS::CallReceiverFromVp(vp);
+    JSObject *obj = JSVAL_TO_OBJECT(rec.thisv());
+
     GType gtype;
     gchar *strval;
     JSBool ret;
@@ -81,7 +83,7 @@ to_string_func(JSContext *context,
                                  g_type_name(gtype));
     ret = gjs_string_from_utf8(context, strval, -1, &retval);
     if (ret)
-        JS_SET_RVAL(context, vp, retval);
+        rec.rval().set(retval);
     g_free(strval);
     return ret;
 }
@@ -95,16 +97,17 @@ get_name_func (JSContext *context,
     GType gtype;
     JSBool ret;
     jsval retval;
+    JS::CallReceiver rec = JS::CallReceiverFromVp(vp.address());
 
     gtype = GPOINTER_TO_SIZE(priv_from_js(context, obj));
 
     if (gtype == 0) {
-        JS_SET_RVAL(context, vp.address(), JSVAL_NULL);
+        rec.rval().set(JSVAL_NULL);
         return TRUE;
     } else {
         ret = gjs_string_from_utf8(context, g_type_name(gtype), -1, &retval);
         if (ret)
-            JS_SET_RVAL(context, vp.address(), retval);
+            rec.rval().set(retval);
         return ret;
     }
 }
@@ -207,4 +210,26 @@ gjs_typecheck_gtype (JSContext             *context,
                      JSBool                 throw_error)
 {
     return do_base_typecheck(context, obj, throw_error);
+}
+
+const char *
+gjs_get_names_from_gtype_and_gi_info(GType        gtype,
+                                     GIBaseInfo  *info,
+                                     const char **constructor_name)
+{
+    const char *ns;
+    /* ns is only used to set the JSClass->name field (exposed by
+     * Object.prototype.toString).
+     * We can safely set "unknown" if there is no info, as in that case
+     * the name is globally unique (it's a GType name). */
+    if (info) {
+        ns = g_base_info_get_namespace((GIBaseInfo*) info);
+        if (constructor_name)
+            *constructor_name = g_base_info_get_name((GIBaseInfo*) info);
+    } else {
+        ns = "unknown";
+        if (constructor_name)
+            *constructor_name = g_type_name(gtype);
+    }
+    return ns;
 }

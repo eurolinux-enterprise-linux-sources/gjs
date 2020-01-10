@@ -30,13 +30,15 @@
 #include <gjs/coverage.h>
 
 static char **include_path = NULL;
-static char **coverage_paths = NULL;
+static char **coverage_prefixes = NULL;
 static char *coverage_output_path = NULL;
 static char *command = NULL;
 
+static const char *GJS_COVERAGE_CACHE_FILE_NAME = ".internal-gjs-coverage-cache";
+
 static GOptionEntry entries[] = {
     { "command", 'c', 0, G_OPTION_ARG_STRING, &command, "Program passed in as a string", "COMMAND" },
-    { "coverage-path", 'C', 0, G_OPTION_ARG_STRING_ARRAY, &coverage_paths, "Add the filename FILE to the list of files to generate coverage info for", "FILE" },
+    { "coverage-prefix", 'C', 0, G_OPTION_ARG_STRING_ARRAY, &coverage_prefixes, "Add the prefix PREFIX to the list of files to generate coverage info for", "PREFIX" },
     { "coverage-output", 0, 0, G_OPTION_ARG_STRING, &coverage_output_path, "Write coverage output to a directory DIR. This option is mandatory when using --coverage-path", "DIR", },
     { "include-path", 'I', 0, G_OPTION_ARG_STRING_ARRAY, &include_path, "Add the directory DIR to the list of directories to search for js files.", "DIR" },
     { NULL }
@@ -69,6 +71,8 @@ main(int argc, char **argv)
     gsize len;
     int code;
 
+    setlocale(LC_ALL, "");
+
     context = g_option_context_new(NULL);
 
     /* pass unknown through to the JS script */
@@ -87,8 +91,6 @@ main(int argc, char **argv)
     }
 
     g_option_context_free (context);
-
-    setlocale(LC_ALL, "");
 
     if (command != NULL) {
         script = command;
@@ -117,12 +119,17 @@ main(int argc, char **argv)
                                             "program-name", program_name,
                                             NULL);
 
-    if (coverage_paths) {
+    if (coverage_prefixes) {
         if (!coverage_output_path)
             g_error("--coverage-output is required when taking coverage statistics");
 
-        coverage = gjs_coverage_new((const gchar **) coverage_paths,
-                                    js_context);
+        char *path_to_cache_file = g_build_filename(coverage_output_path,
+                                                    GJS_COVERAGE_CACHE_FILE_NAME,
+                                                    NULL);
+        coverage = gjs_coverage_new_from_cache((const gchar **) coverage_prefixes,
+                                               js_context,
+                                               path_to_cache_file);
+        g_free(path_to_cache_file);
     }
 
     /* prepare command line arguments */

@@ -40,7 +40,6 @@
 #include <gjs/compat.h>
 #include <gjs/jsapi-private.h>
 
-#include <util/log.h>
 #include <util/misc.h>
 
 #include <girepository.h>
@@ -191,7 +190,8 @@ repo_new_resolve(JSContext *context,
         goto out;
 
     priv = priv_from_js(context, obj);
-    gjs_debug_jsprop(GJS_DEBUG_GREPO, "Resolve prop '%s' hook obj %p priv %p", name, *obj, priv);
+    gjs_debug_jsprop(GJS_DEBUG_GREPO, "Resolve prop '%s' hook obj %p priv %p",
+                     name, (void *)obj, priv);
 
     if (priv == NULL) /* we are the prototype, or have the wrong class */
         goto out;
@@ -301,7 +301,7 @@ repo_new(JSContext *context)
     repo = JS_NewObject(context, &gjs_repo_class, NULL, global);
     if (repo == NULL) {
         gjs_throw(context, "No memory to create repo object");
-        return JS_FALSE;
+        return NULL;
     }
 
     priv = g_slice_new0(Repo);
@@ -453,11 +453,15 @@ _gjs_log_info_usage(GIBaseInfo *info)
 JSBool
 gjs_define_info(JSContext  *context,
                 JSObject   *in_object,
-                GIBaseInfo *info)
+                GIBaseInfo *info,
+                gboolean   *defined)
 {
 #if GJS_VERBOSE_ENABLE_GI_USAGE
     _gjs_log_info_usage(info);
 #endif
+
+    *defined = TRUE;
+
     switch (g_base_info_get_type(info)) {
     case GI_INFO_TYPE_FUNCTION:
         {
@@ -492,6 +496,16 @@ gjs_define_info(JSContext  *context,
         }
         break;
     case GI_INFO_TYPE_STRUCT:
+        /* We don't want GType structures in the namespace,
+           we expose their fields as vfuncs and their methods
+           as static methods
+        */
+        if (g_struct_info_is_gtype_struct((GIStructInfo*) info)) {
+            *defined = FALSE;
+            break;
+        }
+        /* Fall through */
+
     case GI_INFO_TYPE_BOXED:
         gjs_define_boxed_class(context, in_object, (GIBoxedInfo*) info);
         break;
@@ -516,7 +530,9 @@ gjs_define_info(JSContext  *context,
             return JS_FALSE;
         break;
     case GI_INFO_TYPE_INTERFACE:
-        gjs_define_interface_class(context, in_object, (GIInterfaceInfo*) info);
+        gjs_define_interface_class(context, in_object, (GIInterfaceInfo *) info,
+                                   g_registered_type_info_get_g_type((GIRegisteredTypeInfo *) info),
+                                   NULL);
         break;
     default:
         gjs_throw(context, "API of type %s not implemented, cannot define %s.%s",
@@ -749,8 +765,8 @@ gjs_hyphen_from_camel(const char *camel_name)
 }
 
 JSObject *
-gjs_lookup_generic_prototype(JSContext  *context,
-                             GIBaseInfo *info)
+gjs_lookup_generic_constructor(JSContext  *context,
+                               GIBaseInfo *info)
 {
     JSObject *in_object;
     JSObject *constructor;
@@ -771,6 +787,20 @@ gjs_lookup_generic_prototype(JSContext  *context,
 
     constructor = JSVAL_TO_OBJECT(value);
     g_assert(constructor != NULL);
+
+    return constructor;
+}
+
+JSObject *
+gjs_lookup_generic_prototype(JSContext  *context,
+                             GIBaseInfo *info)
+{
+    JSObject *constructor;
+    jsval value;
+
+    constructor = gjs_lookup_generic_constructor(context, info);
+    if (G_UNLIKELY (constructor == NULL))
+        return NULL;
 
     if (!gjs_object_get_property_const(context, constructor,
                                        GJS_STRING_PROTOTYPE, &value))

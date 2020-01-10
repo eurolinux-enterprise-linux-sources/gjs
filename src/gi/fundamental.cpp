@@ -24,25 +24,19 @@
 
 #include <config.h>
 
-#include <string.h>
-
-#include <gjs/gi.h>
-
 #include "fundamental.h"
+
 #include "arg.h"
 #include "object.h"
 #include "boxed.h"
-#include "repo.h"
 #include "function.h"
 #include "gtype.h"
 #include "proxyutils.h"
+#include "repo.h"
 
-#include <gjs/gjs.h>
-
+#include <gjs/gjs-module.h>
+#include <gjs/compat.h>
 #include <util/log.h>
-
-#include <jsapi.h>
-
 #include <girepository.h>
 
 /*
@@ -160,8 +154,8 @@ init_fundamental_instance(JSContext *context,
     JS_SetPrivate(object, priv);
 
     gjs_debug_lifecycle(GJS_DEBUG_GFUNDAMENTAL,
-                        "fundamental instance constructor, obj %p priv %p proto %p ",
-                        object, priv, JS_GetPrototype (object));
+                        "fundamental instance constructor, obj %p priv %p",
+                        object, priv);
 
     proto_priv = proto_priv_from_js(context, object);
     g_assert(proto_priv != NULL);
@@ -313,7 +307,9 @@ fundamental_instance_new_resolve(JSContext  *context,
         return JS_TRUE; /* not resolved, but no error */
 
     priv = priv_from_js(context, obj);
-    gjs_debug_jsprop(GJS_DEBUG_GFUNDAMENTAL, "Resolve prop '%s' hook obj %p priv %p", name, *obj, priv);
+    gjs_debug_jsprop(GJS_DEBUG_GFUNDAMENTAL,
+                     "Resolve prop '%s' hook obj %p priv %p",
+                     name, (void *)obj, priv);
 
     if (priv == NULL)
         goto out; /* wrong class */
@@ -444,7 +440,7 @@ GJS_NATIVE_CONSTRUCTOR_DECLARE(fundamental_instance)
                         "fundamental constructor, obj %p priv %p",
                         object, priv);
 
-    if (!fundamental_invoke_constructor(priv, context, object, argc, argv, &ret_value))
+    if (!fundamental_invoke_constructor(priv, context, object, argc, argv.array(), &ret_value))
         return JS_FALSE;
 
     associate_js_instance_to_fundamental(context, object, ret_value.v_pointer, FALSE);
@@ -504,7 +500,9 @@ to_string_func(JSContext *context,
                unsigned   argc,
                jsval     *vp)
 {
-    JSObject *obj = JS_THIS_OBJECT(context, vp);
+    JS::CallReceiver rec = JS::CallReceiverFromVp(vp);
+    JSObject *obj = JSVAL_TO_OBJECT(rec.thisv());
+
     FundamentalInstance *priv;
     JSBool ret = JS_FALSE;
     jsval retval;
@@ -531,7 +529,7 @@ to_string_func(JSContext *context,
     }
 
     ret = JS_TRUE;
-    JS_SET_RVAL(context, vp, retval);
+    rec.rval().set(retval);
  out:
     return ret;
 }

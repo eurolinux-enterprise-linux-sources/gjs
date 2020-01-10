@@ -4,13 +4,14 @@ const JSUnit = imports.jsUnit;
 const Lang = imports.lang;
 const GObject = imports.gi.GObject;
 const Gio = imports.gi.Gio;
+const Gtk = imports.gi.Gtk;
 
 const MyObject = new GObject.Class({
     Name: 'MyObject',
     Properties: {
         'readwrite': GObject.ParamSpec.string('readwrite', 'ParamReadwrite',
                                               'A read write parameter',
-                                              GObject.ParamFlags.READABLE | GObject.ParamFlags.WRITABLE,
+                                              GObject.ParamFlags.READWRITE,
                                               ''),
         'readonly': GObject.ParamSpec.string('readonly', 'ParamReadonly',
                                              'A readonly parameter',
@@ -19,7 +20,7 @@ const MyObject = new GObject.Class({
 
         'construct': GObject.ParamSpec.string('construct', 'ParamConstructOnly',
                                               'A readwrite construct-only parameter',
-                                              GObject.ParamFlags.READABLE | GObject.ParamFlags.WRITABLE | GObject.ParamFlags.CONSTRUCT_ONLY,
+                                              GObject.ParamFlags.READWRITE | GObject.ParamFlags.CONSTRUCT_ONLY,
                                               'default')
     },
     Signals: {
@@ -109,6 +110,11 @@ const MyObject = new GObject.Class({
 
     on_empty: function() {
         this.empty_called = true;
+    },
+
+    on_full: function() {
+        this.full_default_handler_called = true;
+        return 79;
     }
 });
 
@@ -153,6 +159,23 @@ const Derived = new Lang.Class({
     }
 });
 
+const MyCustomInit = new Lang.Class({
+    Name: 'MyCustomInit',
+    Extends: GObject.Object,
+
+    _init: function() {
+        this.foo = false;
+
+        this.parent();
+
+        JSUnit.assert(this.foo);
+    },
+
+    _instance_init: function() {
+        this.foo = true;
+    }
+});
+
 function testGObjectClass() {
     let myInstance = new MyObject();
 
@@ -165,6 +188,18 @@ function testGObjectClass() {
     JSUnit.assertEquals('baz', myInstance2.readwrite);
     JSUnit.assertEquals('bar', myInstance2.readonly);
     JSUnit.assertEquals('asdf', myInstance2.construct);
+
+    let ui = '<interface> \
+                <object class="Gjs_MyObject" id="MyObject"> \
+                  <property name="readwrite">baz</property> \
+                  <property name="construct">quz</property> \
+                </object> \
+              </interface>';
+    let builder = Gtk.Builder.new_from_string(ui, -1);
+    let myInstance3 = builder.get_object('MyObject');
+    JSUnit.assertEquals('baz', myInstance3.readwrite);
+    JSUnit.assertEquals('bar', myInstance3.readonly);
+    JSUnit.assertEquals('quz', myInstance3.construct);
 
     // the following would (should) cause a CRITICAL:
     // myInstance.readonly = 'val';
@@ -225,6 +260,7 @@ function testSignals() {
     let result = myInstance.emit_full();
 
     JSUnit.assertEquals(true, ok);
+    JSUnit.assertUndefined(myInstance.full_default_handler_called);
     JSUnit.assertEquals(42, result);
 
     let stack = [ ];
@@ -262,7 +298,7 @@ function testInterface() {
     instance.init(new Gio.Cancellable);
     JSUnit.assertEquals(true, instance.inited);
 
-    // JSUnit.assertTrue(instance instanceof Gio.Initable)
+    JSUnit.assertTrue(instance.constructor.implements(Gio.Initable));
 }
 
 function testDerived() {
@@ -272,6 +308,60 @@ function testDerived() {
     JSUnit.assertTrue(derived instanceof MyObject);
 
     JSUnit.assertEquals('yes', derived.readwrite);
+}
+
+function testInstanceInit() {
+    new MyCustomInit();
+}
+
+function testClassCanHaveInterfaceProperty() {
+    const InterfacePropObject = new Lang.Class({
+        Name: 'InterfacePropObject',
+        Extends: GObject.Object,
+        Properties: {
+            'file': GObject.ParamSpec.object('file', 'File', 'File',
+                GObject.ParamFlags.READABLE | GObject.ParamFlags.WRITABLE | GObject.ParamFlags.CONSTRUCT_ONLY,
+                Gio.File.$gtype)
+        }
+    });
+    let obj = new InterfacePropObject({ file: Gio.File.new_for_path('dummy') });
+}
+
+function testClassCanOverrideParentClassProperty() {
+    const OverrideObject = new Lang.Class({
+        Name: 'OverrideObject',
+        Extends: MyObject,
+        Properties: {
+            'readwrite': GObject.ParamSpec.override('readwrite', MyObject)
+        },
+        get readwrite() {
+            return this._subclass_readwrite;
+        },
+        set readwrite(val) {
+            this._subclass_readwrite = 'subclass' + val;
+        }
+    });
+    let obj = new OverrideObject();
+    obj.readwrite = 'foo';
+    JSUnit.assertEquals(obj.readwrite, 'subclassfoo');
+}
+
+function testClassCannotOverrideNonexistentProperty() {
+    JSUnit.assertRaises(() => new Lang.Class({
+        Name: 'BadOverride',
+        Extends: GObject.Object,
+        Properties: {
+            'nonexistent': GObject.ParamSpec.override('nonexistent', GObject.Object)
+        }
+    }));
+}
+
+function testDefaultHandler() {
+    let myInstance = new MyObject();
+    let result = myInstance.emit_full();
+
+    JSUnit.assertEquals(true, myInstance.full_default_handler_called);
+    JSUnit.assertEquals(79, result);
 }
 
 JSUnit.gjstestRun(this, JSUnit.setUp, JSUnit.tearDown);

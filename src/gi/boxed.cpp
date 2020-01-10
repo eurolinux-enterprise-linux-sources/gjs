@@ -131,7 +131,8 @@ boxed_new_resolve(JSContext *context,
         return JS_TRUE; /* not resolved, but no error */
 
     priv = priv_from_js(context, obj);
-    gjs_debug_jsprop(GJS_DEBUG_GBOXED, "Resolve prop '%s' hook obj %p priv %p", name, *obj, priv);
+    gjs_debug_jsprop(GJS_DEBUG_GBOXED, "Resolve prop '%s' hook obj %p priv %p",
+                     name, (void *)obj, priv);
 
     if (priv == NULL)
         goto out; /* wrong class */
@@ -489,11 +490,11 @@ GJS_NATIVE_CONSTRUCTOR_DECLARE(boxed)
     actual_rval = JSVAL_VOID;
     JS_AddValueRoot(context, &actual_rval);
 
-    retval = boxed_new(context, object, priv, argc, argv, &actual_rval);
+    retval = boxed_new(context, object, priv, argc, argv.array(), &actual_rval);
 
     if (retval) {
         if (!JSVAL_IS_VOID (actual_rval))
-            JS_SET_RVAL(context, vp, actual_rval);
+            argv.rval().set(actual_rval);
         else
             GJS_NATIVE_CONSTRUCTOR_FINISH(boxed);
     }
@@ -548,7 +549,7 @@ get_field_info (JSContext *context,
     jsval id_val;
 
     if (!JS_IdToValue(context, id, &id_val))
-        return JS_FALSE;
+        return NULL;
 
     if (!JSVAL_IS_INT (id_val)) {
         gjs_throw(context, "Field index for %s is not an integer",
@@ -894,7 +895,9 @@ to_string_func(JSContext *context,
                unsigned   argc,
                jsval     *vp)
 {
-    JSObject *obj = JS_THIS_OBJECT(context, vp);
+    JS::CallReceiver rec = JS::CallReceiverFromVp(vp);
+    JSObject *obj = JSVAL_TO_OBJECT(rec.thisv());
+
     Boxed *priv;
     JSBool ret = JS_FALSE;
     jsval retval;
@@ -907,7 +910,7 @@ to_string_func(JSContext *context,
         goto out;
 
     ret = JS_TRUE;
-    JS_SET_RVAL(context, vp, retval);
+    rec.rval().set(retval);
  out:
     return ret;
 }

@@ -159,10 +159,12 @@ function testUtf8() {
     JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_nonconst_return());
     Everything.test_utf8_const_in(CONST_STR);
     JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_out());
-    JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
-    JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
-    JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
-    JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
+    // FIXME: these are broken due to a change in gobject-introspection.
+    // Disable them for now. See https://bugzilla.gnome.org/show_bug.cgi?id=736517
+    // JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
+    // JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
+    // JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
+    // JSUnit.assertEquals(NONCONST_STR, Everything.test_utf8_inout(CONST_STR));
 }
 
 function testFilenameReturn() {
@@ -231,6 +233,15 @@ function testArrayCallback() {
     };
     JSUnit.assertEquals(Everything.test_array_callback(callback), 14);
     JSUnit.assertRaises(function () { Everything.test_array_callback(null) });
+}
+
+function testCallbackTransferFull() {
+    let callback = function() {
+                       let obj = Everything.TestObj.new_from_file("/enoent");
+                       return obj;
+                   };
+
+    Everything.test_callback_return_full(callback);
 }
 
 function testCallbackDestroyNotify() {
@@ -333,6 +344,9 @@ function testArrayOut() {
             JSUnit.assertEquals(ref[i], res[i]);
     }
 
+    let array = Everything.test_array_int_out();
+    arrayEqual([0, 1, 2, 3, 4], array);
+
     let array =  Everything.test_array_fixed_size_int_out();
     JSUnit.assertEquals(0, array[0]);
     JSUnit.assertEquals(4, array[4]);
@@ -350,6 +364,14 @@ function testArrayOut() {
     JSUnit.assertEquals(0, array.length);
 
     Everything.test_array_int_null_in(null);
+}
+
+function testArrayOfStructsOut() {
+   let array = Everything.test_array_struct_out();
+   let ints = array.map(struct => struct.some_int);
+   JSUnit.assertEquals(22, ints[0]);
+   JSUnit.assertEquals(33, ints[1]);
+   JSUnit.assertEquals(44, ints[2]);
 }
 
 /* GHash type */
@@ -454,6 +476,28 @@ function testSignalWithStaticScopeArg() {
 
     o.emit('test-with-static-scope-arg', b);
     JSUnit.assertEquals('signal handler was passed arg as reference', 44, b.some_int);
+}
+
+function testSignalWithArrayLenParam() {
+    let o = new Everything.TestObj();
+    let array;
+    o.connect('sig-with-array-len-prop', function(signalObj, signalArray, shouldBeUndefined) {
+        array = signalArray;
+        JSUnit.assertUndefined('no extra length arg', shouldBeUndefined);
+    });
+
+    o.emit_sig_with_array_len_prop();
+    JSUnit.assertEquals('handler was passed array with length', array.length, 5);
+    for (let i = 0; i < 5; i++)
+        JSUnit.assertEquals('handler was passed correct array', array[i], i);
+
+    // FIXME not yet implemented:
+    // o.emit('sig-with-array-len-prop', [0, 1, 2, 3, 4]);
+    // JSUnit.assertEquals('handler was passed array with length', array.length, 5);
+    // for (let i = 0; i < 5; i++)
+    //     JSUnit.assertEquals('handler was passed correct array', array[i], i);
+    // o.emit('sig-with-array-len-prop', null);
+    // JSUnit.assertNull('handler was passed null array', array);
 }
 
 function testTortureSignature0() {

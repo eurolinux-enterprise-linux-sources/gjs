@@ -52,7 +52,7 @@ function vprintf(str, args) {
             s = parseInt(getArg()).toString(16);
             break;
         case 'f':
-            if (precisionGroup == '')
+            if (precisionGroup === '' || precisionGroup === undefined)
                 s = parseFloat(getArg()).toString();
             else
                 s = parseFloat(getArg()).toFixed(parseInt(precisionGroup));
@@ -64,6 +64,11 @@ function vprintf(str, args) {
     });
 }
 
+function printf() {
+    let args = Array.prototype.slice.call(arguments);
+    let fmt = args.shift();
+    print(vprintf(fmt, args));
+}
 
 /*
  * This function is intended to extend the String object and provide

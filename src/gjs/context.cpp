@@ -80,7 +80,7 @@ static const char *const_strings[] = {
     "imports", "__parentModule__", "__init__", "searchPath",
     "__gjsKeepAlive", "__gjsPrivateNS",
     "gi", "versions", "overrides",
-    "_init", "_new_internal", "new",
+    "_init", "_instance_init", "_new_internal", "new",
     "message", "code", "stack", "fileName", "lineNumber", "name",
     "x", "y", "width", "height",
 };
@@ -107,7 +107,7 @@ gjs_log(JSContext *context,
         unsigned   argc,
         jsval     *vp)
 {
-    jsval *argv = JS_ARGV(context, vp);
+    JS::CallArgs argv = JS::CallArgsFromVp (argc, vp);
     char *s;
     JSExceptionState *exc_state;
     JSString *jstr;
@@ -142,7 +142,7 @@ gjs_log(JSContext *context,
     g_free(s);
 
     JS_EndRequest(context);
-    JS_SET_RVAL(context, vp, JSVAL_VOID);
+    argv.rval().set(JSVAL_VOID);
     return JS_TRUE;
 }
 
@@ -151,7 +151,7 @@ gjs_log_error(JSContext *context,
               unsigned   argc,
               jsval     *vp)
 {
-    jsval *argv = JS_ARGV(context, vp);
+    JS::CallArgs argv = JS::CallArgsFromVp (argc, vp);
     JSExceptionState *exc_state;
     JSString *jstr;
 
@@ -178,14 +178,13 @@ gjs_log_error(JSContext *context,
     gjs_log_exception_full(context, argv[0], jstr);
 
     JS_EndRequest(context);
-    JS_SET_RVAL(context, vp, JSVAL_VOID);
+    argv.rval().set(JSVAL_VOID);
     return JS_TRUE;
 }
 
 static JSBool
 gjs_print_parse_args(JSContext *context,
-                     unsigned   argc,
-                     jsval     *argv,
+                     JS::CallArgs &argv,
                      char     **buffer)
 {
     GString *str;
@@ -195,7 +194,7 @@ gjs_print_parse_args(JSContext *context,
     JS_BeginRequest(context);
 
     str = g_string_new("");
-    for (n = 0; n < argc; ++n) {
+    for (n = 0; n < argv.length(); ++n) {
         JSExceptionState *exc_state;
         JSString *jstr;
 
@@ -218,7 +217,7 @@ gjs_print_parse_args(JSContext *context,
 
             g_string_append(str, s);
             g_free(s);
-            if (n < (argc-1))
+            if (n < (argv.length()-1))
                 g_string_append_c(str, ' ');
         } else {
             JS_EndRequest(context);
@@ -240,17 +239,17 @@ gjs_print(JSContext *context,
           unsigned   argc,
           jsval     *vp)
 {
-    jsval *argv = JS_ARGV(context, vp);
+    JS::CallArgs argv = JS::CallArgsFromVp (argc, vp);
     char *buffer;
 
-    if (!gjs_print_parse_args(context, argc, argv, &buffer)) {
+    if (!gjs_print_parse_args(context, argv, &buffer)) {
         return FALSE;
     }
 
     g_print("%s\n", buffer);
     g_free(buffer);
 
-    JS_SET_RVAL(context, vp, JSVAL_VOID);
+    argv.rval().set(JSVAL_VOID);
     return JS_TRUE;
 }
 
@@ -259,17 +258,17 @@ gjs_printerr(JSContext *context,
              unsigned   argc,
              jsval     *vp)
 {
-    jsval *argv = JS_ARGV(context, vp);
+    JS::CallArgs argv = JS::CallArgsFromVp (argc, vp);
     char *buffer;
 
-    if (!gjs_print_parse_args(context, argc, argv, &buffer)) {
+    if (!gjs_print_parse_args(context, argv, &buffer)) {
         return FALSE;
     }
 
     g_printerr("%s\n", buffer);
     g_free(buffer);
 
-    JS_SET_RVAL(context, vp, JSVAL_VOID);
+    argv.rval().set(JSVAL_VOID);
     return JS_TRUE;
 }
 
@@ -429,10 +428,9 @@ gjs_context_constructed(GObject *object)
     /* set ourselves as the private data */
     JS_SetContextPrivate(js_context->context, js_context);
 
-    if (!gjs_init_context_standard(js_context->context))
+    if (!gjs_init_context_standard(js_context->context, &js_context->global))
         g_error("Failed to initialize context");
 
-    js_context->global = JS_GetGlobalObject(js_context->context);
     JSAutoCompartment ac(js_context->context, js_context->global);
 
     if (!JS_DefineProperty(js_context->context, js_context->global,
@@ -763,4 +761,30 @@ gjs_object_get_property_const(JSContext      *context,
     jsid pname;
     pname = gjs_context_get_const_string(context, property_name);
     return JS_GetPropertyById(context, obj, pname, value_p);
+}
+
+/**
+ * gjs_get_import_global:
+ * @context: a #JSContext
+ *
+ * Gets the "import global" for the context's runtime. The import
+ * global object is the global object for the context. It is used
+ * as the root object for the scope of modules loaded by GJS in this
+ * runtime, and should also be used as the globals 'obj' argument passed
+ * to JS_InitClass() and the parent argument passed to JS_ConstructObject()
+ * when creating a native classes that are shared between all contexts using
+ * the runtime. (The standard JS classes are not shared, but we share
+ * classes such as GObject proxy classes since objects of these classes can
+ * easily migrate between contexts and having different classes depending
+ * on the context where they were first accessed would be confusing.)
+ *
+ * Return value: the "import global" for the context's
+ *  runtime. Will never return %NULL while GJS has an active context
+ *  for the runtime.
+ */
+JSObject*
+gjs_get_import_global(JSContext *context)
+{
+    GjsContext *gjs_context = (GjsContext *) JS_GetContextPrivate(context);
+    return gjs_context->global;
 }

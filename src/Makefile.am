@@ -14,9 +14,10 @@ EXTRA_DIST =
 TEST_PROGS =
 check_PROGRAMS = $(TEST_PROGS)
 INTROSPECTION_GIRS =
-ACLOCAL_AMFLAGS = ${ACLOCAL_FLAGS}
-AM_CFLAGS = $(WARN_CFLAGS) -DG_LOG_DOMAIN=\"Gjs\"
-AM_CPPFLAGS = $(WARN_CXXFLAGS) -DG_LOG_DOMAIN=\"Gjs\"
+ACLOCAL_AMFLAGS = -I m4
+AM_CFLAGS = $(WARN_CFLAGS)
+AM_CXXFLAGS = $(WARN_CXXFLAGS)
+AM_CPPFLAGS = -DG_LOG_DOMAIN=\"Gjs\"
 
 gjsjsdir = @gjsjsdir@
 gjsoverridedir = $(gjsjsdir)/overrides
@@ -80,7 +81,8 @@ EXTRA_DIST += 			\
 ########################################################################
 gjs_directory_defines = 				\
 	-DGJS_TOP_SRCDIR=\"$(top_srcdir)\"		\
-	-DGJS_JS_DIR=\"$(gjsjsdir)\"			\
+	-DGJS_TOP_BUILDDIR=\"$(top_builddir)\"		\
+	-DGJS_JS_DIR=\"$(gjsjsdir)\"                    \
 	-DPKGLIBDIR=\"$(pkglibdir)\"
 
 ########################################################################
@@ -92,8 +94,6 @@ libgjs_la_CPPFLAGS =		\
 	$(gjs_directory_defines)\
 	-I$(top_srcdir)/gi	\
 	-DGJS_COMPILATION
-libgjs_la_CFLAGS = 		\
-	$(AM_CFLAGS)
 libgjs_la_LDFLAGS = 		\
 	$(EXTRA_LINK_FLAGS)	\
 	-export-symbols-regex "^[^_]" -version-info 0:0:0	\
@@ -113,6 +113,7 @@ libgjs_la_SOURCES =		\
 	gjs/importer.cpp		\
 	gjs/gi.h		\
 	gjs/gi.cpp		\
+	gjs/coverage-internal.h	\
 	gjs/coverage.cpp \
 	gjs/jsapi-private.cpp	\
 	gjs/jsapi-util.cpp	\

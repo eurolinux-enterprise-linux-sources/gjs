@@ -26,6 +26,7 @@
 #include "arg.h"
 #include "gtype.h"
 #include "object.h"
+#include "interface.h"
 #include "foreign.h"
 #include "fundamental.h"
 #include "boxed.h"
@@ -252,6 +253,11 @@ type_needs_out_release(GITypeInfo *type_info,
         case GI_INFO_TYPE_ENUM:
         case GI_INFO_TYPE_FLAGS:
             needs_release = FALSE;
+            break;
+
+        case GI_INFO_TYPE_STRUCT:
+        case GI_INFO_TYPE_UNION:
+            needs_release = g_type_info_is_pointer (type_info);
             break;
 
         default:
@@ -1417,8 +1423,33 @@ gjs_value_to_g_argument(JSContext      *context,
             } else if (JSVAL_IS_NULL(value)) {
                 arg->v_pointer = NULL;
             } else if (JSVAL_IS_OBJECT(value)) {
-                /* Handle Struct/Union first since we don't necessarily need a GType for them */
-                if ((interface_type == GI_INFO_TYPE_STRUCT || interface_type == GI_INFO_TYPE_BOXED) &&
+                if (interface_type == GI_INFO_TYPE_STRUCT &&
+                    g_struct_info_is_gtype_struct((GIStructInfo*)interface_info)) {
+                    GType gtype;
+                    gpointer klass;
+
+                    gtype = gjs_gtype_get_actual_gtype(context, JSVAL_TO_OBJECT(value));
+
+                    if (gtype == G_TYPE_NONE) {
+                        wrong = TRUE;
+                        report_type_mismatch = TRUE;
+                        break;
+                    }
+
+                    /* We use peek here to simplify reference counting (we just ignore
+                       transfer annotation, as GType classes are never really freed)
+                       We know that the GType class is referenced at least once when
+                       the JS constructor is initialized.
+                    */
+
+                    if (g_type_is_a(gtype, G_TYPE_INTERFACE))
+                        klass = g_type_default_interface_peek(gtype);
+                    else
+                        klass = g_type_class_peek(gtype);
+
+                    arg->v_pointer = klass;
+                } else if ((interface_type == GI_INFO_TYPE_STRUCT || interface_type == GI_INFO_TYPE_BOXED) &&
+                    /* Handle Struct/Union first since we don't necessarily need a GType for them */
                     /* We special case Closures later, so skip them here */
                     !g_type_is_a(gtype, G_TYPE_CLOSURE)) {
                     JSObject *obj = JSVAL_TO_OBJECT(value);
@@ -2131,11 +2162,42 @@ gjs_array_from_carray_internal (JSContext  *context,
         case GI_TYPE_TAG_DOUBLE:
           ITERATE(double);
           break;
+        case GI_TYPE_TAG_INTERFACE: {
+          GIBaseInfo *interface_info;
+          GIInfoType info_type;
+
+          interface_info = g_type_info_get_interface (param_info);
+          info_type = g_base_info_get_type (interface_info);
+
+          if ((info_type == GI_INFO_TYPE_STRUCT ||
+               info_type == GI_INFO_TYPE_UNION) &&
+              !g_type_info_is_pointer (param_info)) {
+              gsize struct_size;
+
+              if (info_type == GI_INFO_TYPE_UNION)
+                  struct_size = g_union_info_get_size ((GIUnionInfo*)interface_info);
+              else
+                  struct_size = g_struct_info_get_size ((GIStructInfo*)interface_info);
+
+              for (i = 0; i < length; i++) {
+                  arg.v_pointer = ((char*)array) + (struct_size * i);
+
+                  if (!gjs_value_from_g_argument(context, &elem, param_info, &arg, TRUE))
+                      goto finally;
+                  if (!JS_DefineElement(context, obj, i, elem, NULL, NULL,
+                                        JSPROP_ENUMERATE))
+                      goto finally;
+              }
+
+              break;
+          }
+
+          /* fallthrough */
+        }
         case GI_TYPE_TAG_GTYPE:
         case GI_TYPE_TAG_UTF8:
         case GI_TYPE_TAG_FILENAME:
         case GI_TYPE_TAG_ARRAY:
-        case GI_TYPE_TAG_INTERFACE:
         case GI_TYPE_TAG_GLIST:
         case GI_TYPE_TAG_GSLIST:
         case GI_TYPE_TAG_GHASH:
@@ -2597,6 +2659,25 @@ gjs_value_from_g_argument (JSContext  *context,
                 goto out;
             }
 
+            if (interface_type == GI_INFO_TYPE_STRUCT &&
+                g_struct_info_is_gtype_struct((GIStructInfo*)interface_info)) {
+                JSBool ret;
+
+                /* XXX: here we make the implicit assumption that GTypeClass is the same
+                   as GTypeInterface. This is true for the GType field, which is what we
+                   use, but not for the rest of the structure!
+                */
+                gtype = G_TYPE_FROM_CLASS(arg->v_pointer);
+
+                if (g_type_is_a(gtype, G_TYPE_INTERFACE))
+                    ret = gjs_lookup_interface_constructor(context, gtype, value_p);
+                else
+                    ret = gjs_lookup_object_constructor(context, gtype, value_p);
+
+                g_base_info_unref(interface_info);
+                return ret;
+            }
+
             gtype = g_registered_type_info_get_g_type((GIRegisteredTypeInfo*)interface_info);
             if (G_TYPE_IS_INSTANTIATABLE(gtype) ||
                 G_TYPE_IS_INTERFACE(gtype))
@@ -2717,6 +2798,8 @@ gjs_value_from_g_argument (JSContext  *context,
                 return result;
             } else {
                 /* arrays with length are handled outside of this function */
+                g_assert(("Use gjs_value_from_explicit_array() for arrays with length param",
+                          g_type_info_get_array_length(type_info) == -1));
                 return gjs_array_from_fixed_size_array(context, value_p, type_info, arg->v_pointer);
             }
         } else if (g_type_info_get_array_type(type_info) == GI_ARRAY_TYPE_BYTE_ARRAY) {

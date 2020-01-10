@@ -202,7 +202,8 @@ jsval gjs_##cname##_create_proto(JSContext *context, JSObject *module, const cha
     return rval; \
 }
 
-gboolean    gjs_init_context_standard        (JSContext       *context);
+gboolean    gjs_init_context_standard        (JSContext       *context,
+                                              JSObject       **global_out);
 
 JSObject*   gjs_get_import_global            (JSContext       *context);
 
@@ -416,6 +417,7 @@ typedef enum {
   GJS_STRING_GI_VERSIONS,
   GJS_STRING_GI_OVERRIDES,
   GJS_STRING_GOBJECT_INIT,
+  GJS_STRING_INSTANCE_INIT,
   GJS_STRING_NEW_INTERNAL,
   GJS_STRING_NEW,
   GJS_STRING_MESSAGE,

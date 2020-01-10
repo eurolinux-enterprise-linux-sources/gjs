@@ -67,6 +67,7 @@ ns_new_resolve(JSContext *context,
     GIRepository *repo;
     GIBaseInfo *info;
     JSBool ret = JS_FALSE;
+    gboolean defined;
 
     if (!gjs_get_string_id(context, id, &name))
         return JS_TRUE; /* not resolved, but no error */
@@ -79,7 +80,9 @@ ns_new_resolve(JSContext *context,
     }
 
     priv = priv_from_js(context, obj);
-    gjs_debug_jsprop(GJS_DEBUG_GNAMESPACE, "Resolve prop '%s' hook obj %p priv %p", name, *obj, priv);
+    gjs_debug_jsprop(GJS_DEBUG_GNAMESPACE,
+                     "Resolve prop '%s' hook obj %p priv %p",
+                     name, (void *)obj, priv);
 
     if (priv == NULL) {
         ret = JS_TRUE; /* we are the prototype, or have the wrong class */
@@ -104,9 +107,10 @@ ns_new_resolve(JSContext *context,
               g_base_info_get_name(info),
               g_base_info_get_namespace(info));
 
-    if (gjs_define_info(context, obj, info)) {
+    if (gjs_define_info(context, obj, info, &defined)) {
         g_base_info_unref(info);
-        objp.set(obj); /* we defined the property in this object */
+        if (defined)
+            objp.set(obj); /* we defined the property in this object */
         ret = JS_TRUE;
     } else {
         gjs_debug(GJS_DEBUG_GNAMESPACE,
@@ -119,6 +123,30 @@ ns_new_resolve(JSContext *context,
 
  out:
     g_free(name);
+    return ret;
+}
+
+static JSBool
+get_name (JSContext *context,
+          JS::HandleObject obj,
+          JS::HandleId id,
+          jsval *vp)
+{
+    Ns *priv;
+    jsval retval;
+    JSBool ret = JS_FALSE;
+
+    priv = priv_from_js(context, obj);
+
+    if (priv == NULL)
+        goto out;
+
+    if (gjs_string_from_utf8(context, priv->gi_namespace, -1, &retval)) {
+        *vp = retval;
+        ret = JS_TRUE;
+    }
+
+ out:
     return ret;
 }
 
@@ -163,6 +191,7 @@ struct JSClass gjs_ns_class = {
 };
 
 JSPropertySpec gjs_ns_proto_props[] = {
+    { "__name__", 0, GJS_MODULE_PROP_FLAGS | JSPROP_READONLY, (JSPropertyOp)get_name, NULL },
     { NULL }
 };
 
@@ -183,7 +212,7 @@ ns_new(JSContext    *context,
     global = gjs_get_import_global(context);
 
     if (!JS_HasProperty(context, global, gjs_ns_class.name, &found))
-        return JS_FALSE;
+        return NULL;
     if (!found) {
         JSObject *prototype;
         prototype = JS_InitClass(context, global,

@@ -172,7 +172,7 @@ gjs_callback_closure(ffi_cif *cif,
 {
     JSContext *context;
     JSRuntime *runtime;
-    JSObject *global;
+    JSObject *func_obj;
     GjsCallbackTrampoline *trampoline;
     int i, n_args, n_jsargs, n_outargs;
     jsval *jsargs, rval;
@@ -203,8 +203,8 @@ gjs_callback_closure(ffi_cif *cif,
     }
 
     JS_BeginRequest(context);
-    global = JS_GetGlobalObject(context);
-    JSAutoCompartment ac(context, global);
+    func_obj = &trampoline->js_function.toObject();
+    JSAutoCompartment ac(context, func_obj);
 
     n_args = g_callable_info_get_n_args(trampoline->info);
 
@@ -290,7 +290,9 @@ gjs_callback_closure(ffi_cif *cif,
 
     if (n_outargs == 0 && !ret_type_is_void) {
         GIArgument argument;
+        GITransfer transfer;
 
+        transfer = g_callable_info_get_caller_owns (trampoline->info);
         /* non-void return value, no out args. Should
          * be a single return value. */
         if (!gjs_value_to_g_argument(context,
@@ -298,7 +300,7 @@ gjs_callback_closure(ffi_cif *cif,
                                      &ret_type,
                                      "callback",
                                      GJS_ARGUMENT_RETURN_VALUE,
-                                     GI_TRANSFER_NOTHING,
+                                     transfer,
                                      TRUE,
                                      &argument))
             goto out;
@@ -556,6 +558,31 @@ gjs_fill_method_instance (JSContext  *context,
             out_arg->v_pointer = gjs_gerror_from_error(context, obj);
             if (transfer == GI_TRANSFER_EVERYTHING)
                 out_arg->v_pointer = g_error_copy ((GError*) out_arg->v_pointer);
+        } else if (type == GI_INFO_TYPE_STRUCT &&
+                   g_struct_info_is_gtype_struct((GIStructInfo*) container)) {
+            /* And so do GType structures */
+            GType gtype;
+            gpointer klass;
+
+            gtype = gjs_gtype_get_actual_gtype(context, obj);
+
+            if (gtype == G_TYPE_NONE) {
+                gjs_throw(context, "Invalid GType class passed for instance parameter");
+                return JS_FALSE;
+            }
+
+            /* We use peek here to simplify reference counting (we just ignore
+               transfer annotation, as GType classes are never really freed)
+               We know that the GType class is referenced at least once when
+               the JS constructor is initialized.
+            */
+
+            if (g_type_is_a(gtype, G_TYPE_INTERFACE))
+                klass = g_type_default_interface_peek(gtype);
+            else
+                klass = g_type_class_peek(gtype);
+
+            out_arg->v_pointer = klass;
         } else {
             if (!gjs_typecheck_boxed(context, obj,
                                      container, gtype,
@@ -1174,6 +1201,23 @@ release:
             if (arg_failed)
                 postinvoke_release_failed = TRUE;
 
+            /* Free GArgument, the jsval should have ref'd or copied it */
+            transfer = g_arg_info_get_ownership_transfer(&arg_info);
+            if (!arg_failed) {
+                if (array_length_pos >= 0) {
+                    gjs_g_argument_release_out_array(context,
+                                                     transfer,
+                                                     &arg_type_info,
+                                                     JSVAL_TO_INT(array_length),
+                                                     arg);
+                } else {
+                    gjs_g_argument_release(context,
+                                           transfer,
+                                           &arg_type_info,
+                                           arg);
+                }
+            }
+
             /* For caller-allocates, what happens here is we allocate
              * a structure above, then gjs_value_from_g_argument calls
              * g_boxed_copy on it, and takes ownership of that.  So
@@ -1203,23 +1247,6 @@ release:
 
                 g_slice_free1(size, out_arg_cvalues[c_arg_pos].v_pointer);
                 g_base_info_unref((GIBaseInfo*)interface_info);
-            }
-
-            /* Free GArgument, the jsval should have ref'd or copied it */
-            transfer = g_arg_info_get_ownership_transfer(&arg_info);
-            if (!arg_failed) {
-                if (array_length_pos >= 0) {
-                    gjs_g_argument_release_out_array(context,
-                                                     transfer,
-                                                     &arg_type_info,
-                                                     JSVAL_TO_INT(array_length),
-                                                     arg);
-                } else {
-                    gjs_g_argument_release(context,
-                                           transfer,
-                                           &arg_type_info,
-                                           arg);
-                }
             }
 
             ++next_rval;
@@ -1275,25 +1302,27 @@ function_call(JSContext *context,
               unsigned   js_argc,
               jsval     *vp)
 {
-    jsval *js_argv = JS_ARGV(context, vp);
-    JSObject *object = JS_THIS_OBJECT(context, vp);
-    JSObject *callee = JSVAL_TO_OBJECT(JS_CALLEE(context, vp));
+    JS::CallArgs js_argv = JS::CallArgsFromVp (js_argc, vp);
+    JSObject *object = JSVAL_TO_OBJECT(js_argv.thisv());
+    JSObject *callee = &js_argv.callee();
+
     JSBool success;
     Function *priv;
     jsval retval;
 
     priv = priv_from_js(context, callee);
-    gjs_debug_marshal(GJS_DEBUG_GFUNCTION, "Call callee %p priv %p this obj %p %s", callee, priv,
-                      obj, JS_GetTypeName(context,
-                                          JS_TypeOfValue(context, OBJECT_TO_JSVAL(object))));
+    gjs_debug_marshal(GJS_DEBUG_GFUNCTION,
+                      "Call callee %p priv %p this obj %p %s", callee, priv,
+                      object,
+                      JS_GetTypeName(context, JS_TypeOfValue(context, OBJECT_TO_JSVAL(object))));
 
     if (priv == NULL)
         return JS_TRUE; /* we are the prototype, or have the wrong class */
 
 
-    success = gjs_invoke_c_function(context, priv, object, js_argc, js_argv, &retval, NULL);
+    success = gjs_invoke_c_function(context, priv, object, js_argc, js_argv.array(), &retval, NULL);
     if (success)
-        JS_SET_RVAL(context, vp, retval);
+        js_argv.rval().set(retval);
 
     return success;
 }
@@ -1342,6 +1371,8 @@ get_num_arguments (JSContext *context,
     jsval retval;
     Function *priv;
 
+    JS::CallReceiver rec = JS::CallReceiverFromVp(vp.address());
+
     priv = priv_from_js(context, obj);
 
     if (priv == NULL)
@@ -1362,7 +1393,7 @@ get_num_arguments (JSContext *context,
     }
 
     retval = INT_TO_JSVAL(n_jsargs);
-    JS_SET_RVAL(context, vp.address(), retval);
+    rec.rval().set(retval);
     return JS_TRUE;
 }
 
@@ -1381,7 +1412,9 @@ function_to_string (JSContext *context,
     GString *arg_names_str;
     gchar *arg_names;
 
-    self = JS_THIS_OBJECT(context, vp);
+    JS::CallReceiver rec = JS::CallReceiverFromVp(vp);
+    self = JSVAL_TO_OBJECT(rec.thisv());
+
     if (!self) {
         gjs_throw(context, "this cannot be null");
         return JS_FALSE;
@@ -1433,7 +1466,7 @@ function_to_string (JSContext *context,
 
  out:
     if (gjs_string_from_utf8(context, string, -1, &retval)) {
-        JS_SET_RVAL(context, vp, retval);
+        rec.rval().set(retval);
         ret = JS_TRUE;
     }
 

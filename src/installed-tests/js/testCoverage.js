@@ -8,13 +8,18 @@ function parseScriptForExpressionLines(script) {
 
 function assertArrayEquals(actual, expected, assertion) {
     if (actual.length != expected.length)
-        throw "Arrays not equal length. Actual array was " +
-                actual.length + " and Expected array was " +
-                expected.length;
+        throw new Error("Arrays not equal length. Actual array was " +
+                        actual.length + " and Expected array was " +
+                        expected.length);
 
-    for (let i = 0; i < actual.length; i++) {
+    for (let i = 0; i < actual.length; i++)
         assertion(expected[i], actual[i]);
-    }
+}
+
+function testExpressionLinesWithNoTrailingNewline() {
+    let foundLines = parseScriptForExpressionLines("let x;\n" +
+                                                   "let y;");
+    assertArrayEquals(foundLines, [1, 2], JSUnit.assertEquals);
 }
 
 function testExpressionLinesFoundForAssignmentExpressionSides() {
@@ -27,7 +32,6 @@ function testExpressionLinesFoundForAssignmentExpressionSides() {
                       [1, 2, 3],
                       JSUnit.assertEquals);
 }
-
 
 function testExpressionLinesFoundForLinesInsideFunctions() {
     let foundLinesInsideNamedFunction =
@@ -58,7 +62,7 @@ function testExpressionLinesFoundForLinesInsideAnonymousFunctions() {
 function testExpressionLinesFoundForBodyOfFunctionProperty() {
     let foundLinesInsideFunctionProperty =
         parseScriptForExpressionLines("var o = {\n" +
-                                      "    foo: function () {\n" +
+                                      "    foo: function() {\n" +
                                       "        let x = a;\n" +
                                       "    }\n" +
                                       "};\n");
@@ -153,6 +157,22 @@ function testExpressionLinesFoundForCaseStatements() {
                       JSUnit.assertEquals);
 }
 
+function testExpressionLinesFoundForCaseStatementsCharacters() {
+    let foundLinesInsideCaseStatements =
+        parseScriptForExpressionLines("var a = 'a';\n" +
+                                      "switch (a) {\n" +
+                                      "case 'a':\n" +
+                                      "    a++;\n" +
+                                      "    break;\n" +
+                                      "case 'b':\n" +
+                                      "    a++;\n" +
+                                      "    break;\n" +
+                                      "}\n");
+    assertArrayEquals(foundLinesInsideCaseStatements,
+                      [1, 2, 4, 5, 7, 8],
+                      JSUnit.assertEquals);
+}
+
 function testExpressionLinesFoundForLoop() {
     let foundLinesInsideLoop =
         parseScriptForExpressionLines("for (let i = 0; i < 1; i++) {\n" +
@@ -177,15 +197,15 @@ function testExpressionLinesFoundForIfExits() {
                       JSUnit.assertEquals);
 }
 
-function testExpressionLinesFoundForFirstLineOfMultilineIfTests() {
+function testExpressionLinesFoundForAllLinesOfMultilineIfTests() {
     let foundLinesInsideMultilineIfTest =
         parseScriptForExpressionLines("if (1 > 0 &&\n" +
                                       "    2 > 0 &&\n" +
-                                      "    3 > 0){\n" +
+                                      "    3 > 0) {\n" +
                                       "    let a = 3;\n" +
                                       "}\n");
     assertArrayEquals(foundLinesInsideMultilineIfTest,
-                      [1, 4],
+                      [1, 2, 3, 4],
                       JSUnit.assertEquals);
 }
 
@@ -265,6 +285,17 @@ function functionDeclarationsEqual(actual, expected) {
     JSUnit.assertEquals(expected.n_params, actual.n_params);
 }
 
+function testFunctionsFoundNoTrailingNewline() {
+    let foundFuncs = parseScriptForFunctionNames("function f1() {}\n" +
+                                                 "function f2() {}\n");
+    assertArrayEquals(foundFuncs,
+                      [
+                          { key: "f1:1:0", line: 1, n_params: 0 },
+                          { key: "f2:2:0", line: 2, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
 function testFunctionsFoundForDeclarations() {
     let foundFunctionDeclarations =
         parseScriptForFunctionNames("function f1() {}\n" +
@@ -272,9 +303,9 @@ function testFunctionsFoundForDeclarations() {
                                     "function f3() {}\n");
     assertArrayEquals(foundFunctionDeclarations,
                       [
-                          { name: "f1", line: 1, n_params: 0 },
-                          { name: "f2", line: 2, n_params: 0 },
-                          { name: "f3", line: 3, n_params: 0 }
+                          { key: "f1:1:0", line: 1, n_params: 0 },
+                          { key: "f2:2:0", line: 2, n_params: 0 },
+                          { key: "f3:3:0", line: 3, n_params: 0 }
                       ],
                       functionDeclarationsEqual);
 }
@@ -289,9 +320,9 @@ function testFunctionsFoundForNestedFunctions() {
                                     "}\n");
     assertArrayEquals(foundFunctions,
                       [
-                          { name: "f1", line: 1, n_params: 0 },
-                          { name: null, line: 2, n_params: 0 },
-                          { name: null, line: 3, n_params: 0 }
+                          { key: "f1:1:0", line: 1, n_params: 0 },
+                          { key: "(anonymous):2:0", line: 2, n_params: 0 },
+                          { key: "(anonymous):3:0", line: 3, n_params: 0 }
                       ],
                       functionDeclarationsEqual);
 }
@@ -301,15 +332,313 @@ function testFunctionsFoundOnSameLineButDifferentiatedOnArgs() {
      * one line */
     let foundFunctionsOnSameLine =
         parseScriptForFunctionNames("function f1() {" +
-                                    "    return (function (a) {" +
-                                    "        return function (a, b) {}" +
+                                    "    return (function(a) {" +
+                                    "        return function(a, b) {}" +
                                     "    });" +
                                     "}");
     assertArrayEquals(foundFunctionsOnSameLine,
                       [
-                          { name: "f1", line: 1, n_params: 0 },
-                          { name: null, line: 1, n_params: 1 },
-                          { name: null, line: 1, n_params: 2 }
+                          { key: "f1:1:0", line: 1, n_params: 0 },
+                          { key: "(anonymous):1:1", line: 1, n_params: 1 },
+                          { key: "(anonymous):1:2", line: 1, n_params: 2 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideArrayExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a = [function() {}];\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 },
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideArrowExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("(a) => (function() {})();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:1", line: 1, n_params: 1 },
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideSequence() {
+    let foundFunctions =
+        parseScriptForFunctionNames("(function(a) {})()," +
+                                    "(function(a, b) {})();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 1 },
+                          { key: "(anonymous):1:2", line: 1, n_params: 2 },
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideUnaryExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a = (function() {}())++;\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 },
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideBinaryExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a = function(a) {}() +" +
+                                    " function(a, b) {}();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:1", line: 1, n_params: 1 },
+                          { key: "(anonymous):1:2", line: 1, n_params: 2 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideAssignmentExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a = function() {}();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideUpdateExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a;\n" +
+                                    "a += function() {}();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):2:0", line: 2, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideIfConditions() {
+    let foundFunctions =
+        parseScriptForFunctionNames("if (function(a) {}(a) >" +
+                                    "    function(a, b) {}(a, b)) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:1", line: 1, n_params: 1 },
+                          { key: "(anonymous):1:2", line: 1, n_params: 2 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideWhileConditions() {
+    let foundFunctions =
+        parseScriptForFunctionNames("while (function(a) {}(a) >" +
+                                    "       function(a, b) {}(a, b)) {};\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:1", line: 1, n_params: 1 },
+                          { key: "(anonymous):1:2", line: 1, n_params: 2 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideForInitializer() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for (function() {}; ;) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+/* SpiderMonkey parses for (let i = <init>; <cond>; <update>) as though
+ * they were let i = <init> { for (; <cond> <update>) } so test the
+ * LetStatement initializer case too */
+function testFunctionsInsideForLetInitializer() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for (let i = function() {}; ;) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideForVarInitializer() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for (var i = function() {}; ;) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideForCondition() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for (; function() {}();) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideForIncrement() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for (; ;function() {}()) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideForInObject() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for (let x in function() {}()) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideForEachInObject() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for each (x in function() {}()) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInsideForOfObject() {
+    let foundFunctions =
+        parseScriptForFunctionNames("for (x of (function() {}())) {}\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsUsedAsObjectFound() {
+    let foundFunctions =
+        parseScriptForFunctionNames("f = function() {}.bind();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsUsedAsObjectDynamicProp() {
+    let foundFunctions =
+        parseScriptForFunctionNames("f = function() {}['bind']();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsOnEitherSideOfLogicalExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let f = function(a) {} ||" +
+                                    " function(a, b) {};\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):1:1", line: 1, n_params: 1 },
+                          { key: "(anonymous):1:2", line: 1, n_params: 2 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsOnEitherSideOfConditionalExpression() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a\n" +
+                                    "let f = a ? function(a) {}() :" +
+                                    " function(a, b) {}();\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):2:1", line: 2, n_params: 1 },
+                          { key: "(anonymous):2:1", line: 2, n_params: 2 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsYielded() {
+    let foundFunctions =
+        parseScriptForFunctionNames("function a() { yield function (){} };\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "a:1:0", line: 1, n_params: 0 },
+                          { key: "(anonymous):1:0", line: 1, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInArrayComprehensionBody() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a = new Array(1);\n" +
+                                    "let b = [function() {} for (i of a)];\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):2:0", line: 2, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInArrayComprehensionBlock() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a = new Array(1);\n" +
+                                    "let b = [i for (i of function() {})];\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):2:0", line: 2, n_params: 0 }
+                      ],
+                      functionDeclarationsEqual);
+}
+
+function testFunctionsInArrayComprehensionFilter() {
+    let foundFunctions =
+        parseScriptForFunctionNames("let a = new Array(1);\n" +
+                                    "let b = [i for (i of a)" +
+                                    "if (function() {}())];\n");
+
+    assertArrayEquals(foundFunctions,
+                      [
+                          { key: "(anonymous):2:0", line: 2, n_params: 0 }
                       ],
                       functionDeclarationsEqual);
 }
@@ -322,6 +651,15 @@ function parseScriptForBranches(script) {
 function branchInfoEqual(actual, expected) {
     JSUnit.assertEquals(expected.point, actual.point);
     assertArrayEquals(expected.exits, actual.exits, JSUnit.assertEquals);
+}
+
+function testFindBranchWhereNoTrailingNewline() {
+    let foundBranchExits = parseScriptForBranches("if (1) { let a = 1; }");
+    assertArrayEquals(foundBranchExits,
+                      [
+                          { point: 1, exits: [1] }
+                      ],
+                      branchInfoEqual);
 }
 
 function testBothBranchExitsFoundForSimpleBranch() {
@@ -513,7 +851,7 @@ function testZeroExpressionLinesToCounters() {
     let nLines = 1;
     let counters = Coverage._expressionLinesToCounters(expressionLines, nLines);
 
-    assertArrayEquals([undefined], counters, JSUnit.assertEquals);
+    assertArrayEquals([undefined, undefined], counters, JSUnit.assertEquals);
 }
 
 function testSingleExpressionLineToCounters() {
@@ -521,7 +859,8 @@ function testSingleExpressionLineToCounters() {
     let nLines = 4;
     let counters = Coverage._expressionLinesToCounters(expressionLines, nLines);
 
-    assertArrayEquals([undefined, 0, 0, undefined], counters, JSUnit.assertEquals);
+    assertArrayEquals([undefined, 0, 0, undefined, undefined],
+                      counters, JSUnit.assertEquals);
 }
 
 const MockFoundBranches = [
@@ -537,14 +876,14 @@ const MockFoundBranches = [
 
 const MockNLines = 9;
 
-function testGetsSameNumberOfCountersAsNLines() {
+function testGetsSameNumberOfCountersAsNLinesPlusOne() {
     let counters = Coverage._branchesToBranchCounters(MockFoundBranches, MockNLines);
-    JSUnit.assertEquals(MockNLines, counters.length);
+    JSUnit.assertEquals(MockNLines + 1, counters.length);
 }
 
 function testEmptyArrayReturnedForNoBranches() {
     let counters = Coverage._branchesToBranchCounters([], 1);
-    assertArrayEquals([undefined], counters, JSUnit.assertEquals);
+    assertArrayEquals([undefined, undefined], counters, JSUnit.assertEquals);
 }
 
 function testBranchesOnLinesForArrayIndicies() {
@@ -585,9 +924,17 @@ function testHitIsAlwaysInitiallyFalse() {
 function testFunctionForKeyFromFunctionWithNameMatchesSchema() {
     let expectedFunctionKey = 'f:1:2';
     let functionKeyForFunctionName =
-        Coverage._getFunctionKeyFromReflectedFunction({ name: 'f',
-                                                        line: 1,
-                                                        n_params: 2 });
+        Coverage._getFunctionKeyFromReflectedFunction({
+            id: {
+                name: 'f'
+            },
+            loc: {
+              start: {
+                  line: 1
+              }
+            },
+            params: ['a', 'b']
+        });
 
     JSUnit.assertEquals(expectedFunctionKey, functionKeyForFunctionName);
 }
@@ -595,26 +942,106 @@ function testFunctionForKeyFromFunctionWithNameMatchesSchema() {
 function testFunctionKeyFromFunctionWithoutNameIsAnonymous() {
     let expectedFunctionKey = '(anonymous):2:3';
     let functionKeyForAnonymousFunction =
-        Coverage._getFunctionKeyFromReflectedFunction({ name: null,
-                                                        line: 2,
-                                                        n_params: 3 });
+        Coverage._getFunctionKeyFromReflectedFunction({
+            id: null,
+            loc: {
+              start: {
+                  line: 2
+              }
+            },
+            params: ['a', 'b', 'c']
+        });
 
     JSUnit.assertEquals(expectedFunctionKey, functionKeyForAnonymousFunction);
 }
 
-
-
 function testFunctionCounterMapReturnedForFunctionKeys() {
-    let func = {
-        name: 'name',
-        line: 1,
-        n_params: 0
+    let ast = {
+        body: [{
+            type: 'FunctionDeclaration',
+            id: {
+                name: 'name'
+            },
+            loc: {
+              start: {
+                  line: 1
+              }
+            },
+            params: [],
+            body: {
+                type: 'BlockStatement',
+                body: []
+            }
+        }]
     };
 
-    let functionKey = Coverage._getFunctionKeyFromReflectedFunction(func);
-    let functionCounters = Coverage._functionsToFunctionCounters([func]);
+    let detectedFunctions = Coverage.functionsForAST(ast);
+    let functionCounters = Coverage._functionsToFunctionCounters('script',
+                                                                 detectedFunctions);
 
-    JSUnit.assertEquals(0, functionCounters[functionKey].hitCount);
+    JSUnit.assertEquals(0, functionCounters.name['1']['0'].hitCount);
+}
+
+function _fetchLogMessagesFrom(func) {
+    let oldLog = window.log;
+    let collectedMessages = [];
+    window.log = function(message) {
+        collectedMessages.push(message);
+    };
+
+    try {
+        func.apply(this, arguments);
+    } finally {
+        window.log = oldLog;
+    }
+
+    return collectedMessages;
+}
+
+function testErrorReportedWhenTwoIndistinguishableFunctionsPresent() {
+    let ast = {
+        body: [{
+            type: 'FunctionDeclaration',
+            id: {
+                name: '(anonymous)'
+            },
+            loc: {
+              start: {
+                  line: 1
+              }
+            },
+            params: [],
+            body: {
+                type: 'BlockStatement',
+                body: []
+            }
+        }, {
+            type: 'FunctionDeclaration',
+            id: {
+                name: '(anonymous)'
+            },
+            loc: {
+              start: {
+                  line: 1
+              }
+            },
+            params: [],
+            body: {
+                type: 'BlockStatement',
+                body: []
+            }
+        }]
+    };
+
+    let detectedFunctions = Coverage.functionsForAST(ast);
+    let messages = _fetchLogMessagesFrom(function() {
+        Coverage._functionsToFunctionCounters('script', detectedFunctions);
+    });
+
+    JSUnit.assertEquals('script:1 Function identified as (anonymous):1:0 ' +
+                        'already seen in this file. Function coverage will ' +
+                        'be incomplete.',
+                        messages[0]);
 }
 
 function testKnownFunctionsArrayPopulatedForFunctions() {
@@ -626,51 +1053,128 @@ function testKnownFunctionsArrayPopulatedForFunctions() {
     let knownFunctionsArray = Coverage._populateKnownFunctions(functions, 4);
 
     assertArrayEquals(knownFunctionsArray,
-                      [undefined, true, true, undefined],
+                      [undefined, true, true, undefined, undefined],
                       JSUnit.assertEquals);
 }
 
 function testIncrementFunctionCountersForFunctionOnSameExecutionStartLine() {
-    let functionKey = 'f:1:0';
-    let functionCounters = {};
-
-    functionCounters[functionKey] = { hitCount: 0 };
-
+    let functionCounters = Coverage._functionsToFunctionCounters('script', [
+        { key: 'f:1:0',
+          line: 1,
+          n_params: 0 }
+    ]);
     Coverage._incrementFunctionCounters(functionCounters, null, 'f', 1, 0);
 
-    JSUnit.assertEquals(functionCounters[functionKey].hitCount, 1);
+    JSUnit.assertEquals(functionCounters.f['1']['0'].hitCount, 1);
+}
+
+function testIncrementFunctionCountersCanDisambiguateTwoFunctionsWithSameName() {
+    let functionCounters = Coverage._functionsToFunctionCounters('script', [
+        { key: '(anonymous):1:0',
+          line: 1,
+          n_params: 0 },
+        { key: '(anonymous):2:0',
+          line: 2,
+          n_params: 0 }
+    ]);
+    Coverage._incrementFunctionCounters(functionCounters, null, '(anonymous)', 1, 0);
+    Coverage._incrementFunctionCounters(functionCounters, null, '(anonymous)', 2, 0);
+
+    JSUnit.assertEquals(functionCounters['(anonymous)']['1']['0'].hitCount, 1);
+    JSUnit.assertEquals(functionCounters['(anonymous)']['2']['0'].hitCount, 1);
+}
+
+function testIncrementFunctionCountersCanDisambiguateTwoFunctionsOnSameLineWithDifferentParams() {
+    let functionCounters = Coverage._functionsToFunctionCounters('script', [
+        { key: '(anonymous):1:0',
+          line: 1,
+          n_params: 0 },
+        { key: '(anonymous):1:1',
+          line: 1,
+          n_params: 1 }
+    ]);
+    Coverage._incrementFunctionCounters(functionCounters, null, '(anonymous)', 1, 0);
+    Coverage._incrementFunctionCounters(functionCounters, null, '(anonymous)', 1, 1);
+
+    JSUnit.assertEquals(functionCounters['(anonymous)']['1']['0'].hitCount, 1);
+    JSUnit.assertEquals(functionCounters['(anonymous)']['1']['1'].hitCount, 1);
+}
+
+function testIncrementFunctionCountersCanDisambiguateTwoFunctionsOnSameLineByGuessingClosestParams() {
+    let functionCounters = Coverage._functionsToFunctionCounters('script', [
+        { key: '(anonymous):1:0',
+          line: 1,
+          n_params: 0 },
+        { key: '(anonymous):1:3',
+          line: 1,
+          n_params: 3 }
+    ]);
+
+    /* Eg, we called the function with 3 params with just two arguments. We
+     * should be able to work out that we probably intended to call the
+     * latter function as opposed to the former. */
+    Coverage._incrementFunctionCounters(functionCounters, null, '(anonymous)', 1, 2);
+
+    JSUnit.assertEquals(functionCounters['(anonymous)']['1']['0'].hitCount, 0);
+    JSUnit.assertEquals(functionCounters['(anonymous)']['1']['3'].hitCount, 1);
 }
 
 function testIncrementFunctionCountersForFunctionOnEarlierStartLine() {
-    let functions = [
-        {
-            name: 'name',
-            line: 1,
-            n_params: 0
-        }
-    ];
-    let functionKey = Coverage._getFunctionKeyFromReflectedFunction(functions[0]);
-    let knownFunctionsArray = Coverage._populateKnownFunctions(functions, 3);
-    let functionCounters = Coverage._functionsToFunctionCounters(functions);
+    let ast = {
+        body: [{
+            type: 'FunctionDeclaration',
+            id: {
+                name: 'name'
+            },
+            loc: {
+              start: {
+                  line: 1
+              }
+            },
+            params: [],
+            body: {
+                type: 'BlockStatement',
+                body: []
+            }
+        }]
+    };
+
+    let detectedFunctions = Coverage.functionsForAST(ast);
+    let knownFunctionsArray = Coverage._populateKnownFunctions(detectedFunctions, 3);
+    let functionCounters = Coverage._functionsToFunctionCounters('script',
+                                                                 detectedFunctions);
 
     /* We're entering at line two, but the function definition was actually
      * at line one */
     Coverage._incrementFunctionCounters(functionCounters, knownFunctionsArray, 'name', 2, 0);
 
-    JSUnit.assertEquals(functionCounters[functionKey].hitCount, 1);
+    JSUnit.assertEquals(functionCounters.name['1']['0'].hitCount, 1);
 }
 
 function testIncrementFunctionCountersThrowsErrorOnUnexpectedFunction() {
-    let functions = [
-        {
-            name: 'name',
-            line: 1,
-            n_params: 0
-        }
-    ];
-    let functionKey = Coverage._getFunctionKeyFromReflectedFunction(functions[0]);
-    let knownFunctionsArray = Coverage._populateKnownFunctions(functions, 3);
-    let functionCounters = Coverage._functionsToFunctionCounters(functions);
+    let ast = {
+        body: [{
+            type: 'FunctionDeclaration',
+            id: {
+                name: 'name'
+            },
+            loc: {
+              start: {
+                  line: 1
+              }
+            },
+            params: [],
+            body: {
+                type: 'BlockStatement',
+                body: []
+            }
+        }]
+    };
+    let detectedFunctions = Coverage.functionsForAST(ast);
+    let functionKey = Coverage._getFunctionKeyFromReflectedFunction(ast.body[0]);
+    let knownFunctionsArray = Coverage._populateKnownFunctions(detectedFunctions, 3);
+    let functionCounters = Coverage._functionsToFunctionCounters('script',
+                                                                 detectedFunctions);
 
     /* We're entering at line two, but the function definition was actually
      * at line one */
@@ -690,7 +1194,7 @@ function testIncrementExpressionCountersThrowsIfLineOutOfRange() {
     ];
 
     JSUnit.assertRaises(function() {
-        Coverage._incrementExpressionCounters(expressionCounters, 2);
+        Coverage._incrementExpressionCounters(expressionCounters, 'script', 2);
     });
 }
 
@@ -700,7 +1204,7 @@ function testIncrementExpressionCountersIncrementsIfInRange() {
         0
     ];
 
-    Coverage._incrementExpressionCounters(expressionCounters, 1);
+    Coverage._incrementExpressionCounters(expressionCounters, 'script', 1);
     JSUnit.assertEquals(1, expressionCounters[1]);
 }
 
@@ -711,16 +1215,13 @@ function testWarnsIfWeHitANonExecutableLine() {
         undefined
     ];
 
-    let wasCalledContainer = { calledWith: undefined };
-    let reporter = function(cont) {
-        let container = cont;
-        return function(line) {
-            container.calledWith = line;
-        };
-    } (wasCalledContainer);
+    let messages = _fetchLogMessagesFrom(function() {
+        Coverage._incrementExpressionCounters(expressionCounters, 'script', 2);
+    });
 
-    Coverage._incrementExpressionCounters(expressionCounters, 2, reporter);
-    JSUnit.assertEquals(wasCalledContainer.calledWith, 2);
+    JSUnit.assertEquals(messages[0],
+                        "script:2 Executed line previously marked " +
+                        "non-executable by Reflect");
     JSUnit.assertEquals(expressionCounters[2], 1);
 }
 
@@ -755,10 +1256,22 @@ function testBranchTrackerFindsNextBranch() {
 }
 
 function testConvertFunctionCountersToArray() {
-    let functionsMap = {};
-
-    functionsMap['(anonymous):2:0'] = { hitCount: 1 };
-    functionsMap['name:1:0'] = { hitCount: 0 };
+    let functionsMap = {
+        '(anonymous)': {
+            '2': {
+                '0': {
+                    hitCount: 1
+                },
+            },
+        },
+        'name': {
+            '1': {
+                '0': {
+                    hitCount: 0
+                },
+            },
+        }
+    };
 
     let expectedFunctionCountersArray = [
         { name: '(anonymous):2:0', hitCount: 1 },
@@ -776,10 +1289,22 @@ function testConvertFunctionCountersToArray() {
 }
 
 function testConvertFunctionCountersToArrayIsSorted() {
-    let functionsMap = {};
-
-    functionsMap['name:1:0'] = { hitCount: 0 };
-    functionsMap['(anonymous):2:0'] = { hitCount: 1 };
+    let functionsMap = {
+        '(anonymous)': {
+            '2': {
+                '0': {
+                    hitCount: 1
+                },
+            },
+        },
+        'name': {
+            '1': {
+                '0': {
+                    hitCount: 0
+                },
+            },
+        }
+    };
 
     let expectedFunctionCountersArray = [
         { name: '(anonymous):2:0', hitCount: 1 },
@@ -797,22 +1322,45 @@ function testConvertFunctionCountersToArrayIsSorted() {
 }
 
 const MockFiles = {
-    'filename': "let f = function() { return 1; };"
+    'filename': "function f() {\n" +
+                "    return 1;\n" +
+                "}\n" +
+                "if (f())\n" +
+                "    f = 0;\n" +
+                "\n",
+    'uncached': "function f() {\n" +
+                "    return 1;\n" +
+                "}\n"
 };
 
-const MockFilenames = Object.keys(MockFiles);
+const MockFilenames = (function() {
+    let keys = Object.keys(MockFiles);
+    keys.push('nonexistent');
+    return keys;
+})();
 
 Coverage.getFileContents = function(filename) {
     if (MockFiles[filename])
         return MockFiles[filename];
-    throw new Error("Non existent");
+    return undefined;
+};
+
+Coverage.getFileChecksum = function(filename) {
+    return "abcd";
+};
+
+Coverage.getFileModificationTime = function(filename) {
+    return [1, 2];
 };
 
 function testCoverageStatisticsContainerFetchesValidStatisticsForFile() {
     let container = new Coverage.CoverageStatisticsContainer(MockFilenames);
-    let statistics = container.fetchStatistics('filename');
 
+    let statistics = container.fetchStatistics('filename');
     JSUnit.assertNotEquals(undefined, statistics);
+
+    let files = container.getCoveredFiles();
+    assertArrayEquals(files, ['filename'], JSUnit.assertEquals);
 }
 
 function testCoverageStatisticsContainerThrowsForNonExistingFile() {
@@ -821,7 +1369,131 @@ function testCoverageStatisticsContainerThrowsForNonExistingFile() {
     JSUnit.assertRaises(function() {
         container.fetchStatistics('nonexistent');
     });
+}
 
+const MockCache = '{ \
+    "filename": { \
+        "mtime": [1, 2], \
+        "checksum": null, \
+        "lines": [2, 4, 5], \
+        "branches": [ \
+            { \
+                "point": 4, \
+                "exits": [5] \
+            } \
+        ], \
+        "functions": [ \
+            { \
+                "key": "f:1:0", \
+                "line": 1 \
+            } \
+        ] \
+    } \
+}';
+
+/* A simple wrapper to monkey-patch object[functionProperty] with
+ * a wrapper that checks to see if it was called. Returns true
+ * if the function was called at all */
+function _checkIfCalledWhilst(object, functionProperty, clientCode) {
+    let original = object[functionProperty];
+    let called = false;
+
+    object[functionProperty] = function() {
+        called = true;
+        return original.apply(this, arguments);
+    };
+
+    clientCode();
+
+    object[functionProperty] = original;
+    return called;
+}
+
+function testCoverageCountersFetchedFromCache() {
+    let called = _checkIfCalledWhilst(Coverage,
+                                      '_fetchCountersFromReflection',
+                                      function() {
+                                          let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                                                                   MockCache);
+                                          let statistics = container.fetchStatistics('filename');
+                                      });
+    JSUnit.assertFalse(called);
+}
+
+function testCoverageCountersFetchedFromReflectionIfMissed() {
+    let called = _checkIfCalledWhilst(Coverage,
+                                      '_fetchCountersFromReflection',
+                                      function() {
+                                          let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                                                                   MockCache);
+                                          let statistics = container.fetchStatistics('uncached');
+                                      });
+    JSUnit.assertTrue(called);
+}
+
+function testCoverageContainerCacheNotStaleIfAllHit() {
+    let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                             MockCache);
+    let statistics = container.fetchStatistics('filename');
+    JSUnit.assertFalse(container.staleCache());
+}
+
+function testCoverageContainerCacheStaleIfMiss() {
+    let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                             MockCache);
+    let statistics = container.fetchStatistics('uncached');
+    JSUnit.assertTrue(container.staleCache());
+}
+
+function testCoverageCountersFromCacheHaveSameExecutableLinesAsReflection() {
+    let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                             MockCache);
+    let statistics = container.fetchStatistics('filename');
+
+    let containerWithNoCaching = new Coverage.CoverageStatisticsContainer(MockFilenames);
+    let statisticsWithNoCaching = containerWithNoCaching.fetchStatistics('filename');
+
+    assertArrayEquals(statisticsWithNoCaching.expressionCounters,
+                      statistics.expressionCounters,
+                      JSUnit.assertEquals);
+}
+
+function testCoverageCountersFromCacheHaveSameBranchExitsAsReflection() {
+    let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                             MockCache);
+    let statistics = container.fetchStatistics('filename');
+
+    let containerWithNoCaching = new Coverage.CoverageStatisticsContainer(MockFilenames);
+    let statisticsWithNoCaching = containerWithNoCaching.fetchStatistics('filename');
+
+    /* Branch starts on line 4 */
+    JSUnit.assertEquals(statisticsWithNoCaching.branchCounters[4].exits[0].line,
+                        statistics.branchCounters[4].exits[0].line);
+}
+
+function testCoverageCountersFromCacheHaveSameBranchPointsAsReflection() {
+    let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                             MockCache);
+    let statistics = container.fetchStatistics('filename');
+
+    let containerWithNoCaching = new Coverage.CoverageStatisticsContainer(MockFilenames);
+    let statisticsWithNoCaching = containerWithNoCaching.fetchStatistics('filename');
+    JSUnit.assertEquals(statisticsWithNoCaching.branchCounters[4].point,
+                        statistics.branchCounters[4].point);
+}
+
+function testCoverageCountersFromCacheHaveSameFunctionKeysAsReflection() {
+    let container = new Coverage.CoverageStatisticsContainer(MockFilenames,
+                                                             MockCache);
+    let statistics = container.fetchStatistics('filename');
+
+    let containerWithNoCaching = new Coverage.CoverageStatisticsContainer(MockFilenames);
+    let statisticsWithNoCaching = containerWithNoCaching.fetchStatistics('filename');
+
+    /* Functions start on line 1 */
+    assertArrayEquals(Object.keys(statisticsWithNoCaching.functionCounters),
+                      Object.keys(statistics.functionCounters),
+                      JSUnit.assertEquals);
 }
 
 JSUnit.gjstestRun(this, JSUnit.setUp, JSUnit.tearDown);
